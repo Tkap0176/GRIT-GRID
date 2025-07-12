@@ -1,64 +1,1902 @@
-// index.js
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRIT GRID</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- html2canvas for export functionality -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
-// IMPORTANT: Your API key is loaded from an environment variable for security.
-// DO NOT hardcode your API key here.
-const API_KEY = process.env.GEMINI_API_KEY;
-
-if (!API_KEY) {
-    console.error('GEMINI_API_KEY environment variable is not set.');
-    // In a production environment, you might want to return an error immediately
-    // or throw an exception. For now, we'll proceed but the Gemini call will fail.
-}
-
-const genAI = new GoogleGenerativeAI(API_KEY);
-
-/**
- * Responds to HTTP requests, acting as a proxy for the Gemini API.
- * This function handles both game analysis and game plan requests.
- *
- * @param {object} req Cloud Function request context.
- * @param {object} res Cloud Function response context.
- */
-exports.geminiProxy = async (req, res) => {
-    // Set CORS headers for all responses (important for your frontend)
-    res.set('Access-Control-Allow-Origin', '*'); // Allow requests from any origin
-
-    // Handle preflight requests (OPTIONS method)
-    // Browsers send an OPTIONS request before the actual POST request for CORS
-    if (req.method === 'OPTIONS') {
-        res.set('Access-Control-Allow-Methods', 'POST'); // Allow POST method
-        res.set('Access-Control-Allow-Headers', 'Content-Type'); // Allow Content-Type header
-        res.set('Access-Control-Max-Age', '3600'); // Cache preflight for 1 hour
-        return res.status(204).send(''); // Respond with 204 No Content for preflight
-    }
-
-    // Only allow POST requests for actual API calls
-    if (req.method !== 'POST') {
-        return res.status(405).send('Method Not Allowed');
-    }
-
-    try {
-        const { prompt } = req.body;
-
-        if (!prompt) {
-            return res.status(400).json({ error: 'Prompt is required in the request body.' });
+    <style>
+        /* Custom styles for overriding or specific elements not easily handled by Tailwind */
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid #e0e0e0; /* Match Tailwind border-gray-300 visually */
+            padding: 10px;
+            text-align: center;
+        }
+        /* Style for active quarter tab */
+        .quarter-tab.active {
+            background-color: #000; /* Black for highlight */
+            color: white;
         }
 
-        // Use gemini-2.0-flash model as requested
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        /* Hide quarter content by default, show only when active */
+        .quarter {
+            display: none; /* Hide all quarters by default */
+        }
+        .quarter.active {
+            display: block; /* Show only the active quarter */
+        }
+        /* Hide game totals by default, show when active */
+        #game-totals {
+            display: none; /* Hide game totals by default */
+        }
+        #game-totals.active {
+            display: block; /* Show game totals when active */
+        }
 
-        // Generate content
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
 
-        // Send the AI's generated text back to the frontend
-        res.status(200).json({ analysis: text });
+        /* Modal specific styles */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1000; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 600px;
+            border-radius: 8px;
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            position: absolute;
+            top: 10px;
+            right: 15px;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #f97316; /* Orange loader */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .game-list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .game-list-item:hover {
+            background-color: #f0f0f0;
+        }
+        .game-list-item:last-child {
+            border-bottom: none;
+        }
+        .game-list-item button {
+            margin-left: 10px;
+            padding: 4px 8px;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900 p-4 max-w-5xl mx-auto rounded-lg">
+    <div class="bg-black text-white p-4 rounded-t-lg text-center font-bold text-2xl mb-5 shadow-md">
+        <h1>GRIT GRID</h1>
+    </div>
 
-    } catch (error) {
-        console.error('Error during Gemini API call:', error);
-        // Provide a more generic error message to the client for security reasons
-        res.status(500).json({ error: 'An error occurred while processing your request. Please try again later.' });
-    }
-};
+    <!-- Quarter Tabs -->
+    <div id="quarter-tabs-container" class="flex justify-center flex-wrap gap-2 mb-4">
+        <button class="quarter-tab bg-orange-500 text-white py-2 px-4 rounded-md font-bold text-base transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700 active" onclick="showQuarter(1)">1st Quarter</button>
+        <button class="quarter-tab bg-orange-500 text-white py-2 px-4 rounded-md font-bold text-base transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700" onclick="showQuarter(2)">2nd Quarter</button>
+        <button class="quarter-tab bg-orange-500 text-white py-2 px-4 rounded-md font-bold text-base transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700" onclick="showQuarter(3)">3rd Quarter</button>
+        <button class="quarter-tab bg-orange-500 text-white py-2 px-4 rounded-md font-bold text-base transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700" onclick="showQuarter(4)">4th Quarter</button>
+        <button class="quarter-tab bg-orange-500 text-white py-2 px-4 rounded-md font-bold text-base transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700" onclick="addQuarter()">+</button>
+    </div>
+
+    <!-- Quarters Container -->
+    <div id="quarters-container">
+        <!-- Quarter 1 -->
+        <div class="quarter active bg-white rounded-lg p-6 mb-5 shadow-md border border-gray-200" id="q1">
+            <h2 class="text-blue-900 text-xl font-bold mb-4">1st Quarter</h2>
+            <button class="touch-btn bg-orange-500 text-white py-3 px-6 rounded-lg font-bold text-xl block w-full max-w-xs mx-auto transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700" onclick="showTouchMenu(1)">Touch</button>
+            <div id="touch-menu-1" class="touch-menu hidden bg-white rounded-lg shadow-lg p-4 my-2 mx-auto max-w-sm w-11/12 z-10">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="setTouchType(1, 'attack')">Attack</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="setTouchType(1, 'passive')">Passive</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="hideTouchMenu(1)">Cancel</button>
+            </div>
+            <div id="attack-submenu-1" class="sub-menu hidden pl-5 my-1">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(1, 'plusone')">+1</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackOutcome(1, 'aggressiveturnover')">Aggressive Turnover</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(1, 'attackfrompass')">Attack From Pass</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(1, 'attacktodraw')">Attack to Draw</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(1, '3pt')">3pt</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(1, 'dribble')">Dribble Penetration</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackOutcome(1, 'failedpositive')">Failed Attack (Positive Outcome)</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(1, 'transition')">In Transition</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(1, 'layup')">Layup</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(1, 'midrange')">Mid-Range</button>
+            </div>
+            <div id="passive-submenu-1" class="sub-menu hidden pl-5 my-1">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(1, 'possession')">Passive Possession</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(1, 'positive')">Passive Positive Outcome</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(1, 'turnover')">Passive Turnover</button>
+            </div>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Type of Attack</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Shot</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Pass</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack From Pass</td>
+                        <td id="q1-shot-attackfrompass" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pass-attackfrompass" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-total-attackfrompass" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-attackfrompass" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack to Draw</td>
+                        <td id="q1-shot-attacktodraw" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pass-attacktodraw" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-total-attacktodraw" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Dribble Penetration</td>
+                        <td id="q1-shot-dribble" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pass-dribble" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-total-dribble" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-dribble" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">In Transition</td>
+                        <td id="q1-shot-transition" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pass-transition" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-total-transition" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-transition" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Layup</td>
+                        <td id="q1-shot-layup" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pass-layup" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-total-layup" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-layup" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Mid-Range</td>
+                        <td id="q1-shot-midrange" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pass-midrange" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-total-midrange" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-midrange" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">3pt</td>
+                        <td id="q1-shot-3pt" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pass-3pt" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-total-3pt" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-3pt" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Result</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Aggressive Turnover</td>
+                        <td id="q1-aggressiveturnover" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pct-aggressiveturnover" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Failed Attack (Positive Outcome)</td>
+                        <td id="q1-failedpositive" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pct-failedpositive" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Possession</td>
+                        <td id="q1-passivepossession" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pct-passivepossession" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Positive Outcome</td>
+                        <td id="q1-passivepositive" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pct-passivepositive" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Turnover</td>
+                        <td id="q1-passiveturnover" class="p-2 border border-gray-300">0</td>
+                        <td id="q1-pct-passiveturnover" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Category</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Active Touches</td>
+                        <td id="q1-active-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-active-touches" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Touches</td>
+                        <td id="q1-passive-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-passive-touches" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Total Touches</td>
+                        <td id="q1-total-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td class="p-2 border border-gray-300">--</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attacks</td>
+                        <td id="q1-attacks" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-attacks" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack to Draw</td>
+                        <td id="q1-attacktodraw-total" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q1-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack Rate</td>
+                        <td colspan="2" id="q1-attack-rate" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Grade</td>
+                        <td colspan="2" id="q1-grade" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                    </tr>
+                </tbody>
+            </table>
+            <button class="quarter-calc-btn bg-orange-500 text-white py-2 px-4 rounded-md font-bold text-base my-2 transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700 block w-full max-w-xs mx-auto" id="q1-calc-btn" onclick="toggleQuarterLock(1)">End Quarter</button>
+        </div>
+
+        <!-- Quarter 2 -->
+        <div class="quarter bg-white rounded-lg p-6 mb-5 shadow-md border border-gray-200" id="q2">
+            <h2 class="text-blue-900 text-xl font-bold mb-4">2nd Quarter</h2>
+            <button class="touch-btn bg-orange-500 text-white py-3 px-6 rounded-lg font-bold text-xl block w-full max-w-xs mx-auto transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700" onclick="showTouchMenu(2)">Touch</button>
+            <div id="touch-menu-2" class="touch-menu hidden bg-white rounded-lg shadow-lg p-4 my-2 mx-auto max-w-sm w-11/12 z-10">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="setTouchType(2, 'attack')">Attack</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="setTouchType(2, 'passive')">Passive</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="hideTouchMenu(2)">Cancel</button>
+            </div>
+            <div id="attack-submenu-2" class="sub-menu hidden pl-5 my-1">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(2, 'plusone')">+1</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackOutcome(2, 'aggressiveturnover')">Aggressive Turnover</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(2, 'attackfrompass')">Attack From Pass</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(2, 'attacktodraw')">Attack to Draw</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(2, '3pt')">3pt</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(2, 'dribble')">Dribble Penetration</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackOutcome(2, 'failedpositive')">Failed Attack (Positive Outcome)</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(2, 'transition')">In Transition</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(2, 'layup')">Layup</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(2, 'midrange')">Mid-Range</button>
+            </div>
+            <div id="passive-submenu-2" class="sub-menu hidden pl-5 my-1">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(2, 'possession')">Passive Possession</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(2, 'positive')">Passive Positive Outcome</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(2, 'turnover')">Passive Turnover</button>
+            </div>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Type of Attack</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Shot</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Pass</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack From Pass</td>
+                        <td id="q2-shot-attackfrompass" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pass-attackfrompass" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-total-attackfrompass" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-attackfrompass" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack to Draw</td>
+                        <td id="q2-shot-attacktodraw" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pass-attacktodraw" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-total-attacktodraw" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Dribble Penetration</td>
+                        <td id="q2-shot-dribble" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pass-dribble" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-total-dribble" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-dribble" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">In Transition</td>
+                        <td id="q2-shot-transition" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pass-transition" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-total-transition" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-transition" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Layup</td>
+                        <td id="q2-shot-layup" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pass-layup" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-total-layup" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-layup" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Mid-Range</td>
+                        <td id="q2-shot-midrange" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pass-midrange" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-total-midrange" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-midrange" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">3pt</td>
+                        <td id="q2-shot-3pt" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pass-3pt" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-total-3pt" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-3pt" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Result</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Aggressive Turnover</td>
+                        <td id="q2-aggressiveturnover" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pct-aggressiveturnover" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Failed Attack (Positive Outcome)</td>
+                        <td id="q2-failedpositive" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pct-failedpositive" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Possession</td>
+                        <td id="q2-passivepossession" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pct-passivepossession" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Positive Outcome</td>
+                        <td id="q2-passivepositive" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pct-passivepositive" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Turnover</td>
+                        <td id="q2-passiveturnover" class="p-2 border border-gray-300">0</td>
+                        <td id="q2-pct-passiveturnover" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Category</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Active Touches</td>
+                        <td id="q2-active-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-active-touches" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Touches</td>
+                        <td id="q2-passive-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-passive-touches" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Total Touches</td>
+                        <td id="q2-total-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td class="p-2 border border-gray-300">--</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attacks</td>
+                        <td id="q2-attacks" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-attacks" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack to Draw</td>
+                        <td id="q2-attacktodraw-total" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q2-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" id="q2-attack-rate" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Grade</td>
+                        <td colspan="2" id="q2-grade" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                    </tr>
+                </tbody>
+            </table>
+            <button class="quarter-calc-btn bg-orange-500 text-white py-2 px-4 rounded-md font-bold text-base my-2 transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700 block w-full max-w-xs mx-auto" id="q2-calc-btn" onclick="toggleQuarterLock(2)">End Quarter</button>
+        </div>
+
+        <!-- Quarter 3 -->
+        <div class="quarter bg-white rounded-lg p-6 mb-5 shadow-md border border-gray-200" id="q3">
+            <h2 class="text-blue-900 text-xl font-bold mb-4">3rd Quarter</h2>
+            <button class="touch-btn bg-orange-500 text-white py-3 px-6 rounded-lg font-bold text-xl block w-full max-w-xs mx-auto transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700" onclick="showTouchMenu(3)">Touch</button>
+            <div id="touch-menu-3" class="touch-menu hidden bg-white rounded-lg shadow-lg p-4 my-2 mx-auto max-w-sm w-11/12 z-10">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="setTouchType(3, 'attack')">Attack</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="setTouchType(3, 'passive')">Passive</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="hideTouchMenu(3)">Cancel</button>
+            </div>
+            <div id="attack-submenu-3" class="sub-menu hidden pl-5 my-1">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(3, 'plusone')">+1</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackOutcome(3, 'aggressiveturnover')">Aggressive Turnover</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(3, 'attackfrompass')">Attack From Pass</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(3, 'attacktodraw')">Attack to Draw</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(3, '3pt')">3pt</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(3, 'dribble')">Dribble Penetration</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackOutcome(3, 'failedpositive')">Failed Attack (Positive Outcome)</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(3, 'transition')">In Transition</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(3, 'layup')">Layup</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(3, 'midrange')">Mid-Range</button>
+            </div>
+            <div id="passive-submenu-3" class="sub-menu hidden pl-5 my-1">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(3, 'possession')">Passive Possession</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(3, 'positive')">Passive Positive Outcome</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(3, 'turnover')">Passive Turnover</button>
+            </div>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Type of Attack</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Shot</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Pass</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack From Pass</td>
+                        <td id="q3-shot-attackfrompass" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pass-attackfrompass" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-total-attackfrompass" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-attackfrompass" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack to Draw</td>
+                        <td id="q3-shot-attacktodraw" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pass-attacktodraw" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-total-attacktodraw" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Dribble Penetration</td>
+                        <td id="q3-shot-dribble" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pass-dribble" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-total-dribble" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-dribble" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">In Transition</td>
+                        <td id="q3-shot-transition" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pass-transition" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-total-transition" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-transition" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Layup</td>
+                        <td id="q3-shot-layup" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pass-layup" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-total-layup" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-layup" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Mid-Range</td>
+                        <td id="q3-shot-midrange" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pass-midrange" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-total-midrange" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-midrange" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">3pt</td>
+                        <td id="q3-shot-3pt" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pass-3pt" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-total-3pt" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-3pt" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Result</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Aggressive Turnover</td>
+                        <td id="q3-aggressiveturnover" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pct-aggressiveturnover" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Failed Attack (Positive Outcome)</td>
+                        <td id="q3-failedpositive" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pct-failedpositive" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Possession</td>
+                        <td id="q3-passivepossession" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pct-passivepossession" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Positive Outcome</td>
+                        <td id="q3-passivepositive" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pct-passivepositive" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Turnover</td>
+                        <td id="q3-passiveturnover" class="p-2 border border-gray-300">0</td>
+                        <td id="q3-pct-passiveturnover" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Category</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Active Touches</td>
+                        <td id="q3-active-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-active-touches" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Touches</td>
+                        <td id="q3-passive-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-passive-touches" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Total Touches</td>
+                        <td id="q3-total-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td class="p-2 border border-gray-300">--</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attacks</td>
+                        <td id="q3-attacks" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-attacks" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack to Draw</td>
+                        <td id="q3-attacktodraw-total" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q3-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" id="q3-attack-rate" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Grade</td>
+                        <td colspan="2" id="q3-grade" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                    </tr>
+                </tbody>
+            </table>
+            <button class="quarter-calc-btn bg-orange-500 text-white py-2 px-4 rounded-md font-bold text-base my-2 transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700 block w-full max-w-xs mx-auto" id="q3-calc-btn" onclick="toggleQuarterLock(3)">End Quarter</button>
+        </div>
+
+        <!-- Quarter 4 -->
+        <div class="quarter bg-white rounded-lg p-6 mb-5 shadow-md border border-gray-200" id="q4">
+            <h2 class="text-blue-900 text-xl font-bold mb-4">4th Quarter</h2>
+            <button class="touch-btn bg-orange-500 text-white py-3 px-6 rounded-lg font-bold text-xl block w-full max-w-xs mx-auto transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700" onclick="showTouchMenu(4)">Touch</button>
+            <div id="touch-menu-4" class="touch-menu hidden bg-white rounded-lg shadow-lg p-4 my-2 mx-auto max-w-sm w-11/12 z-10">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="setTouchType(4, 'attack')">Attack</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="setTouchType(4, 'passive')">Passive</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-base w-full text-left my-1 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="hideTouchMenu(4)">Cancel</button>
+            </div>
+            <div id="attack-submenu-4" class="sub-menu hidden pl-5 my-1">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(4, 'plusone')">+1</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackOutcome(4, 'aggressiveturnover')">Aggressive Turnover</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(4, 'attackfrompass')">Attack From Pass</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(4, 'attacktodraw')">Attack to Draw</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(4, '3pt')">3pt</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(4, 'dribble')">Dribble Penetration</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackOutcome(4, 'failedpositive')">Failed Attack (Positive Outcome)</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(4, 'transition')">In Transition</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(4, 'layup')">Layup</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignAttackType(4, 'midrange')">Mid-Range</button>
+            </div>
+            <div id="passive-submenu-4" class="sub-menu hidden pl-5 my-1">
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(4, 'possession')">Passive Possession</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(4, 'positive')">Passive Positive Outcome</button>
+                <button class="bg-black text-white py-2 px-3 rounded-md font-bold text-sm w-full text-left my-0.5 transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="assignPassiveType(4, 'turnover')">Passive Turnover</button>
+            </div>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Type of Attack</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Shot</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Pass</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack From Pass</td>
+                        <td id="q4-shot-attackfrompass" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pass-attackfrompass" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-total-attackfrompass" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-attackfrompass" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack to Draw</td>
+                        <td id="q4-shot-attacktodraw" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pass-attacktodraw" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-total-attacktodraw" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Dribble Penetration</td>
+                        <td id="q4-shot-dribble" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pass-dribble" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-total-dribble" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-dribble" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">In Transition</td>
+                        <td id="q4-shot-transition" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pass-transition" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-total-transition" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-transition" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Layup</td>
+                        <td id="q4-shot-layup" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pass-layup" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-total-layup" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-layup" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Mid-Range</td>
+                        <td id="q4-shot-midrange" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pass-midrange" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-total-midrange" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-midrange" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">3pt</td>
+                        <td id="q4-shot-3pt" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pass-3pt" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-total-3pt" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-3pt" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Result</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Aggressive Turnover</td>
+                        <td id="q4-aggressiveturnover" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pct-aggressiveturnover" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Failed Attack (Positive Outcome)</td>
+                        <td id="q4-failedpositive" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pct-failedpositive" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Possession</td>
+                        <td id="q4-passivepossession" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pct-passivepossession" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Positive Outcome</td>
+                        <td id="q4-passivepositive" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pct-passivepositive" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Turnover</td>
+                        <td id="q4-passiveturnover" class="p-2 border border-gray-300">0</td>
+                        <td id="q4-pct-passiveturnover" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <table class="w-full border-collapse my-4 text-sm">
+                <thead>
+                    <tr>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Category</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                        <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Active Touches</td>
+                        <td id="q4-active-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-active-touches" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Passive Touches</td>
+                        <td id="q4-passive-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-passive-touches" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Total Touches</td>
+                        <td id="q4-total-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td class="p-2 border border-gray-300">--</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attacks</td>
+                        <td id="q4-attacks" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-attacks" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Attack to Draw</td>
+                        <td id="q4-attacktodraw-total" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                        <td id="q4-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" id="q4-attack-rate" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2 border border-gray-300">Grade</td>
+                        <td colspan="2" id="q4-grade" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                    </tr>
+                </tbody>
+            </table>
+            <button class="quarter-calc-btn bg-orange-500 text-white py-2 px-4 rounded-md font-bold text-base my-2 transition-all duration-200 hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-700 block w-full max-w-xs mx-auto" id="q4-calc-btn" onclick="toggleQuarterLock(4)">End Game</button>
+        </div>
+    </div>
+
+    <!-- Game Totals -->
+    <div class="quarter bg-white rounded-lg p-8 mb-5 shadow-md border border-gray-200" id="game-totals">
+        <h2 class="text-blue-900 text-2xl font-bold mb-6 text-center">Game Totals</h2>
+
+        <!-- Removed Game Outcomes Table -->
+
+        <h3 class="text-blue-900 text-xl font-bold mb-2">Game Attack Types</h3>
+        <table class="w-full border-collapse my-4 text-sm">
+            <thead>
+                <tr>
+                    <th class="bg-gray-200 p-2 border border-gray-300">Type of Attack</th>
+                    <th class="bg-gray-200 p-2 border border-gray-300">Shot</th>
+                    <th class="bg-gray-200 p-2 border border-gray-300">Pass</th>
+                    <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                    <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="p-2 border border-gray-300">Attack From Pass</td>
+                    <td id="game-shot-attackfrompass" class="p-2 border border-gray-300">0</td>
+                    <td id="game-pass-attackfrompass" class="p-2 border border-gray-300">0</td>
+                    <td id="game-total-attackfrompass" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-attackfrompass" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">Attack to Draw</td>
+                    <td id="game-shot-attacktodraw" class="p-2 border border-gray-300">0</td>
+                    <td id="game-pass-attacktodraw" class="p-2 border border-gray-300">0</td>
+                    <td id="game-total-attacktodraw" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">Dribble Penetration</td>
+                    <td id="game-shot-dribble" class="p-2 border border-gray-300">0</td>
+                    <td id="game-pass-dribble" class="p-2 border border-gray-300">0</td>
+                    <td id="game-total-dribble" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-dribble" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">In Transition</td>
+                    <td id="game-shot-transition" class="p-2 border border-gray-300">0</td>
+                    <td id="game-pass-transition" class="p-2 border border-gray-300">0</td>
+                    <td id="game-total-transition" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-transition" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">Layup</td>
+                    <td id="game-shot-layup" class="p-2 border border-gray-300">0</td>
+                    <td id="game-pass-layup" class="p-2 border border-gray-300">0</td>
+                    <td id="game-total-layup" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-layup" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">Mid-Range</td>
+                    <td id="game-shot-midrange" class="p-2 border border-gray-300">0</td>
+                    <td id="game-pass-midrange" class="p-2 border border-gray-300">0</td>
+                    <td id="game-total-midrange" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-midrange" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">3pt</td>
+                    <td id="game-shot-3pt" class="p-2 border border-gray-300">0</td>
+                    <td id="game-pass-3pt" class="p-2 border border-gray-300">0</td>
+                    <td id="game-total-3pt" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-3pt" class="p-2 border border-gray-300">0%</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <table class="w-full border-collapse my-4 text-sm">
+            <thead>
+                <tr>
+                    <th class="bg-gray-200 p-2 border border-gray-300">Category</th>
+                    <th class="bg-gray-200 p-2 border border-gray-300">Total</th>
+                    <th class="bg-gray-200 p-2 border border-gray-300">% of All Touches</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="p-2 border border-gray-300">Active Touches</td>
+                    <td id="game-active-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-active-touches" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">Passive Touches</td>
+                    <td id="game-passive-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-passive-touches" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">Total Touches</td>
+                    <td id="game-total-touches" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td class="p-2 border border-gray-300">--</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">Attacks</td>
+                    <td id="game-attacks" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-attacks" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">Attack to Draw</td>
+                    <td id="game-attacktodraw-total" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">0</td>
+                    <td id="game-pct-attacktodraw" class="p-2 border border-gray-300">0%</td>
+                </tr>
+                <!-- Added Attack Rate and Grade to Game Totals -->
+                <tr>
+                    <td class="p-2 border border-gray-300">Attack Rate</td>
+                    <td colspan="2" id="game-attack-rate" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                </tr>
+                <tr>
+                    <td class="p-2 border border-gray-300">Grade</td>
+                    <td colspan="2" id="game-grade" class="p-2 border border-gray-300 font-bold text-blue-900 bg-gray-50">--</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Pie Chart Canvas -->
+        <div class="flex justify-center mt-6">
+            <canvas id="touchesPieChart" width="300" height="300" class="border border-gray-300 rounded-md shadow-sm"></canvas>
+        </div>
+    </div>
+    <div class="flex flex-wrap justify-center gap-4 mt-6 mb-4 mr-4">
+        <button class="llm-btn bg-black text-white py-2 px-4 rounded-md font-bold text-base transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="generateAnalysis()">✨ Analyze Game</button>
+        <button class="llm-btn bg-black text-white py-2 px-4 rounded-md font-bold text-base transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="generateGamePlan()">✨ Suggest Game Plan</button>
+        <button class="export-btn bg-black text-white py-2 px-4 rounded-md font-bold text-base transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="exportContent()">Export as PNG</button>
+        <button class="reset-btn bg-black text-white py-2 px-4 rounded-md font-bold text-base transition-all duration-200 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-700" onclick="resetGame()">Reset Game</button>
+    </div>
+
+    <!-- LLM Response Modal -->
+    <div id="llmResponseModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeModal()">&times;</span>
+            <h3 class="text-xl font-bold text-blue-900 mb-4" id="modalTitle">AI Insights</h3>
+            <div id="modalContent" class="text-gray-700">
+                <div class="loader" id="modalLoader" style="display: none;"></div>
+                <p id="llmOutput"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let activeQuarter = 1;
+        const quarterLocks = {1: false, 2: false, 3: false, 4: false};
+        const currentTouchType = {1: null, 2: null, 3: null, 4: null};
+        let quarterCount = 4;
+        const quarterStats = {};
+        let gameTotals = {};
+
+        // --- GOOGLE CLOUD FUNCTION URL (UPDATED) ---
+        const proxyUrl = 'https://us-central1-careful-result-464003-e2.cloudfunctions.net/geminiProxy';
+
+
+        /**
+         * Initializes or resets all quarter stats to zero.
+         */
+        function initializeQuarterStats() {
+            for (let i = 1; i <= 4; i++) {
+                quarterStats[i] = {
+                    shot: { '3pt': 0, attackfrompass: 0, attacktodraw: 0, dribble: 0, layup: 0, midrange: 0, transition: 0 },
+                    pass: { '3pt': 0, attackfrompass: 0, attacktodraw: 0, dribble: 0, layup: 0, midrange: 0, transition: 0 },
+                    outcomes: { aggressiveturnover: 0, failedpositive: 0, passivepossession: 0, passivepositive: 0, passiveturnover: 0 },
+                    activeTouches: 0,
+                    passiveTouches: 0,
+                    totalTouches: 0,
+                    attacks: 0,
+                    attackToDrawTotal: 0,
+                    attackRate: 0,
+                    grade: ''
+                };
+                quarterLocks[i] = false;
+                currentTouchType[i] = null;
+            }
+            // Clear any dynamically added quarters from the object
+            for (let i = 5; i <= quarterCount; i++) {
+                delete quarterStats[i];
+                delete quarterLocks[i];
+                delete currentTouchType[i];
+            }
+        }
+
+        /**
+         * Shows the selected quarter and hides others.
+         * @param {number} q - The quarter number to display.
+         */
+        function showQuarter(q) {
+            // Hide all quarter divs and the game totals div
+            document.querySelectorAll('.quarter').forEach(el => el.classList.remove('active'));
+            document.getElementById('game-totals').classList.remove('active');
+
+            // Deactivate all quarter tabs
+            document.querySelectorAll('.quarter-tab').forEach(el => el.classList.remove('active'));
+
+            // Show the selected quarter div
+            const targetQuarter = document.getElementById(`q${q}`);
+            if (targetQuarter) {
+                targetQuarter.classList.add('active');
+            }
+            // Activate the corresponding quarter tab
+            const quarterTabButtons = document.querySelectorAll('#quarter-tabs-container button');
+            quarterTabButtons.forEach(button => {
+                if (button.onclick && button.onclick.toString().includes(`showQuarter(${q})`)) {
+                    button.classList.add('active');
+                }
+            });
+
+            // Set the active quarter for future operations
+            activeQuarter = q;
+
+            // Scroll to the selected quarter
+            if (targetQuarter) {
+                targetQuarter.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        /**
+         * Dynamically adds a new overtime quarter to the app.
+         */
+        function addQuarter() {
+            const oldQuarterCount = quarterCount; // Store current max quarter number
+            quarterCount++; // Increment quarter counter for new ID
+            const newQuarterId = `q${quarterCount}`;
+            const quarterTitle = `Overtime ${quarterCount - 4}`; // For 5th quarter and beyond
+
+            // Create new quarter div
+            const newQuarterDiv = document.createElement('div');
+            newQuarterDiv.id = newQuarterId;
+            newQuarterDiv.classList.add('quarter', 'bg-white', 'rounded-lg', 'p-6', 'mb-5', 'shadow-md', 'border', 'border-gray-200');
+
+            // Clone the content from an existing quarter (e.g., q1) and update IDs/text
+            // It's crucial to deep clone and then update to avoid ID conflicts
+            const templateQuarter = document.getElementById('q1');
+            if (!templateQuarter) {
+                console.error("Template quarter (q1) not found for cloning.");
+                return;
+            }
+            newQuarterDiv.innerHTML = templateQuarter.innerHTML;
+
+            // Update inner elements' IDs and text within the new quarter
+            newQuarterDiv.querySelector('h2').textContent = quarterTitle;
+            newQuarterDiv.querySelectorAll('[id^="q1-"]').forEach(el => {
+                el.id = el.id.replace('q1-', `${newQuarterId}-`);
+            });
+            newQuarterDiv.querySelectorAll('[onclick*="(1"]').forEach(el => {
+                el.setAttribute('onclick', el.getAttribute('onclick').replace('(1', `(${quarterCount}`));
+            });
+            newQuarterDiv.querySelector('.touch-btn').disabled = false; // Ensure new quarter is enabled by default
+
+            // Reset values to 0 for the new quarter's cloned elements
+            newQuarterDiv.querySelectorAll('td[id^="q"], span[id^="q"]').forEach(el => {
+                if (el.id.includes('-pct-') || el.id.includes('-rate') || el.id.includes('-grade')) {
+                    el.textContent = '0%'; // Set percentage/rate to '0%'
+                    if (el.id.includes('-rate') || el.id.includes('-grade')) {
+                        el.textContent = '--'; // Set initial grade/rate to '--'
+                    }
+                } else {
+                    el.textContent = '0'; // Set counts to '0'
+                }
+            });
+            const touchBtn = newQuarterDiv.querySelector('.touch-btn');
+            if (touchBtn) touchBtn.disabled = false;
+
+            const calcBtn = newQuarterDiv.querySelector('.quarter-calc-btn');
+            if (calcBtn) {
+                calcBtn.textContent = 'End Game'; // The new quarter is always the "End Game" quarter initially
+                calcBtn.classList.remove('bg-blue-900', 'hover:bg-blue-800', 'focus:ring-blue-500');
+                calcBtn.classList.add('bg-orange-500', 'hover:bg-orange-600', 'focus:ring-orange-700');
+            }
+
+
+            // Append new quarter to the quarters container
+            document.getElementById('quarters-container').appendChild(newQuarterDiv);
+
+            // Add new entry to quarterStats for the new quarter
+            quarterStats[quarterCount] = {
+                shot: { '3pt': 0, attackfrompass: 0, attacktodraw: 0, dribble: 0, layup: 0, midrange: 0, transition: 0 },
+                pass: { '3pt': 0, attackfrompass: 0, attacktodraw: 0, dribble: 0, layup: 0, midrange: 0, transition: 0 },
+                outcomes: { aggressiveturnover: 0, failedpositive: 0, passivepossession: 0, passivepositive: 0, passiveturnover: 0 },
+                activeTouches: 0,
+                passiveTouches: 0,
+                totalTouches: 0,
+                attacks: 0,
+                attackToDrawTotal: 0,
+                attackRate: 0,
+                grade: ''
+            };
+            quarterLocks[quarterCount] = false; // New quarter is unlocked
+
+            // Update the button text of the *previous* last quarter to "End Quarter" if it was "End Game" and unlocked
+            if (oldQuarterCount >= 1) {
+                const prevCalcBtn = document.getElementById(`q${oldQuarterCount}-calc-btn`);
+                if (prevCalcBtn && !quarterLocks[oldQuarterCount]) { // Only change if not locked
+                    prevCalcBtn.textContent = 'End Quarter';
+                }
+            }
+
+            // Create and append a new tab button for the new quarter
+            const newTabButton = document.createElement('button');
+            newTabButton.classList.add('quarter-tab', 'bg-orange-500', 'text-white', 'py-2', 'px-4', 'rounded-md', 'font-bold', 'text-base', 'transition-all', 'duration-200', 'hover:bg-orange-600', 'focus:outline-none', 'focus:ring-2', 'focus:ring-orange-700');
+            newTabButton.textContent = quarterTitle;
+            newTabButton.setAttribute('onclick', `showQuarter(${quarterCount})`);
+            // Insert before the '+' button which is always the last .quarter-tab
+            const plusButton = document.getElementById('quarter-tabs-container').querySelector('.quarter-tab:last-child');
+            document.getElementById('quarter-tabs-container').insertBefore(newTabButton, plusButton);
+
+
+            // Show the newly added quarter
+            showQuarter(quarterCount);
+            // Calculate stats for the new quarter
+            calculateQuarter(quarterCount);
+        }
+
+
+        /**
+         * Displays the touch menu for the given quarter.
+         * @param {number} q - The quarter number.
+         */
+        function showTouchMenu(q) {
+            // If the quarter is locked, prevent showing the menu
+            if (quarterLocks[q]) return;
+            // Set the active quarter to the one whose menu is being shown
+            activeQuarter = q;
+            // Display the main touch menu
+            document.getElementById(`touch-menu-${q}`).style.display = 'block';
+            // Hide any previously open sub-menus
+            document.getElementById(`attack-submenu-${q}`).style.display = 'none';
+            document.getElementById(`passive-submenu-${q}`).style.display = 'none';
+        }
+
+        /**
+         * Hides the touch menu and any open sub-menus for the given quarter.
+         * @param {number} q - The quarter number.
+         */
+        function hideTouchMenu(q) {
+            document.getElementById(`touch-menu-${q}`).style.display = 'none';
+            document.getElementById(`attack-submenu-${q}`).style.display = 'none';
+            document.getElementById(`passive-submenu-${q}`).style.display = 'none';
+            // Reset the current touch type
+            currentTouchType[q] = null;
+        }
+
+        /**
+         * Sets the type of touch (attack or passive) and displays the corresponding sub-menu.
+         * @param {number} q - The quarter number.
+         * @param {string} type - The type of touch ('attack' or 'passive').
+         */
+        function setTouchType(q, type) {
+            // If the quarter is locked, prevent setting touch type
+            if (quarterLocks[q]) return;
+            // Store the selected touch type
+            currentTouchType[q] = type;
+            // Hide the main touch menu
+            document.getElementById(`touch-menu-${q}`).style.display = 'none';
+            // Show the appropriate sub-menu
+            if (type === 'attack') {
+                document.getElementById(`attack-submenu-${q}`).style.display = 'block';
+            } else if (type === 'passive') {
+                document.getElementById(`passive-submenu-${q}`).style.display = 'block';
+            }
+        }
+
+        /**
+         * Assigns an attack type (e.g., dribble, layup) for a shot or pass.
+         * Increments relevant counters and recalculates the quarter stats.
+         * @param {number} q - The quarter number.
+         * @param {string} attack - The specific attack type.
+         */
+        function assignAttackType(q, attack) {
+            if (quarterLocks[q]) return; // If quarter is locked, do nothing
+
+            if (attack === 'plusone') {
+                // '+1' is a general attack increment, not a specific shot or pass type
+            } else if (attack === 'attacktodraw') {
+                quarterStats[q].pass[attack]++;
+                quarterStats[q].attackToDrawTotal++;
+            } else { // All other specific attack types (dribble, layup, etc.)
+                quarterStats[q].shot[attack]++;
+            }
+
+            quarterStats[q].activeTouches++;
+            quarterStats[q].totalTouches++;
+            quarterStats[q].attacks++; // All specific attack types and '+1' increment total attacks
+
+            // Hide the sub-menu and reset touch type
+            document.getElementById(`attack-submenu-${q}`).style.display = 'none';
+            currentTouchType[q] = null;
+            // Recalculate quarter stats after increment to update UI
+            calculateQuarter(q);
+        }
+
+        /**
+         * Assigns an attack outcome (e.g., failed positive, aggressive turnover).
+         * Increments relevant counters and recalculates the quarter stats.
+         * As per user request, these are also considered 'attacks'.
+         * @param {number} q - The quarter number.
+         * @param {string} outcome - The specific attack outcome.
+         */
+        function assignAttackOutcome(q, outcome) {
+            if (quarterLocks[q]) return; // If quarter is locked, do nothing
+
+            quarterStats[q].outcomes[outcome]++; // Increment the specific outcome
+            quarterStats[q].activeTouches++; // These are still active touches
+            quarterStats[q].totalTouches++; // Increment total touches
+            quarterStats[q].attacks++; // Increment attacks as these are attack outcomes
+
+            // Hide the sub-menu and reset touch type
+            document.getElementById(`attack-submenu-${q}`).style.display = 'none';
+            currentTouchType[q] = null;
+            // Recalculate quarter stats after increment to update UI
+            calculateQuarter(q);
+        }
+
+        /**
+         * Assigns a passive type (e.g., possession, turnover, positive outcome).
+         * Increments relevant counters and recalculates the quarter stats.
+         * @param {number} q - The quarter number.
+         * @param {string} outcome - The specific passive outcome.
+         */
+        function assignPassiveType(q, outcome) {
+            if (quarterLocks[q]) return; // If quarter is locked, do nothing
+
+            quarterStats[q].outcomes[`passive${outcome}`]++; // Increment the specific passive outcome
+            quarterStats[q].passiveTouches++; // Increment passive touches
+            quarterStats[q].totalTouches++; // Increment total touches
+
+            // Hide the sub-menu and reset touch type
+            document.getElementById(`passive-submenu-${q}`).style.display = 'none';
+            currentTouchType[q] = null;
+            // Recalculate quarter stats after increment to update UI
+            calculateQuarter(q);
+        }
+
+        /**
+         * Toggles the lock state of a quarter, preventing further input if locked.
+         * Also handles button text and navigation for "End Quarter" and "End Game".
+         * @param {number} q - The quarter number.
+         */
+        function toggleQuarterLock(q) {
+            const btn = document.getElementById(`q${q}-calc-btn`);
+            const touchBtn = document.querySelector(`#q${q} .touch-btn`);
+
+            if (!quarterLocks[q]) { // If quarter is currently unlocked (button text is "End Quarter" or "End Game")
+                calculateQuarter(q); // Calculate before locking
+
+                quarterLocks[q] = true;
+                if (touchBtn) touchBtn.disabled = true;
+
+                btn.textContent = 'Edit Quarter'; // Always changes to "Edit Quarter" when locked
+                btn.classList.remove('bg-orange-500', 'hover:bg-orange-600', 'focus:ring-orange-700');
+                btn.classList.add('bg-blue-900', 'hover:bg-blue-800', 'focus:ring-blue-500');
+
+                if (q < quarterCount) { // If not the very last quarter
+                    showQuarter(q + 1); // Go to the next quarter
+                } else { // It is the very last quarter (q === quarterCount)
+                    calculateAllQuarters(); // Final calculation for the game
+                    // calculateAllQuarters already handles showing game totals.
+                }
+            } else { // If quarter is currently locked (button text is "Edit Quarter")
+                quarterLocks[q] = false;
+                if (touchBtn) touchBtn.disabled = false;
+
+                // Determine the text to revert to: "End Quarter" or "End Game"
+                if (q === quarterCount) { // If this is currently the highest quarter number
+                    btn.textContent = 'End Game';
+                } else {
+                    btn.textContent = 'End Quarter';
+                }
+                btn.classList.remove('bg-blue-900', 'hover:bg-blue-800', 'focus:ring-blue-500');
+                btn.classList.add('bg-orange-500', 'hover:bg-orange-600', 'focus:ring-2', 'focus:ring-orange-700');
+            }
+        }
+
+        /**
+         * Calculates and updates the statistics for a specific quarter.
+         * @param {number} q - The quarter number.
+         */
+        function calculateQuarter(q) {
+            // Define specific attack types for table iteration (excluding '+1')
+            const attackTypesForTable = ['3pt', 'attackfrompass', 'attacktodraw', 'dribble', 'layup', 'midrange', 'transition'];
+
+            attackTypesForTable.forEach(type => {
+                const shotCount = quarterStats[q].shot[type] || 0;
+                const passCount = quarterStats[q].pass[type] || 0;
+                const totalForType = shotCount + passCount;
+
+                const shotElement = document.getElementById(`q${q}-shot-${type}`);
+                const passElement = document.getElementById(`q${q}-pass-${type}`);
+                const totalElement = document.getElementById(`q${q}-total-${type}`);
+                const pctElement = document.getElementById(`q${q}-pct-${type}`);
+
+
+                if (shotElement) shotElement.textContent = shotCount;
+                if (passElement) passElement.textContent = passCount;
+                if (totalElement) totalElement.textContent = totalForType;
+
+                if (pctElement) {
+                    if (quarterStats[q].totalTouches > 0) {
+                        pctElement.textContent = ((totalForType / quarterStats[q].totalTouches) * 100).toFixed(1) + '%';
+                    } else {
+                        pctElement.textContent = '0%';
+                    }
+                }
+            });
+
+            // Update basic totals and percentages in the UI based on quarterStats object
+            document.getElementById(`q${q}-active-touches`).textContent = quarterStats[q].activeTouches;
+            document.getElementById(`q${q}-passive-touches`).textContent = quarterStats[q].passiveTouches;
+            document.getElementById(`q${q}-total-touches`).textContent = quarterStats[q].totalTouches;
+            document.getElementById(`q${q}-attacks`).textContent = quarterStats[q].attacks; // attacks now correctly reflect activeTouches
+            document.getElementById(`q${q}-attacktodraw-total`).textContent = quarterStats[q].attackToDrawTotal;
+
+
+            // Calculate percentages for outcomes
+            const outcomeTypes = ['aggressiveturnover', 'failedpositive', 'passivepossession', 'passivepositive', 'passiveturnover'];
+            outcomeTypes.forEach(outcome => {
+                const totalOutcomeElement = document.getElementById(`q${q}-${outcome}`);
+                const pctOutcomeElement = document.getElementById(`q${q}-pct-${outcome}`);
+
+                if (totalOutcomeElement) totalOutcomeElement.textContent = quarterStats[q].outcomes[outcome];
+
+                if (pctOutcomeElement) {
+                    if (quarterStats[q].totalTouches > 0) {
+                        pctOutcomeElement.textContent = ((quarterStats[q].outcomes[outcome] / quarterStats[q].totalTouches) * 100).toFixed(1) + '%';
+                    } else {
+                        pctOutcomeElement.textContent = '0%';
+                    }
+                }
+            });
+
+            // Calculate and update percentages for active and passive touches
+            const pctActiveTouchesElement = document.getElementById(`q${q}-pct-active-touches`);
+            const pctPassiveTouchesElement = document.getElementById(`q${q}-pct-passive-touches`);
+            if (quarterStats[q].totalTouches > 0) {
+                if (pctActiveTouchesElement) pctActiveTouchesElement.textContent = ((quarterStats[q].activeTouches / quarterStats[q].totalTouches) * 100).toFixed(1) + '%';
+                if (pctPassiveTouchesElement) pctPassiveTouchesElement.textContent = ((quarterStats[q].passiveTouches / quarterStats[q].totalTouches) * 100).toFixed(1) + '%';
+            } else {
+                if (pctActiveTouchesElement) pctActiveTouchesElement.textContent = '0%';
+                if (pctPassiveTouchesElement) pctPassiveTouchesElement.textContent = '0%';
+            }
+
+            // Calculate and update percentages for attacks and attack to draw
+            const pctAttacksElement = document.getElementById(`q${q}-pct-attacks`);
+            const pctAttackToDrawElement = document.getElementById(`q${q}-pct-attacktodraw`);
+            if (quarterStats[q].totalTouches > 0) {
+                if (pctAttacksElement) pctAttacksElement.textContent = ((quarterStats[q].attacks / quarterStats[q].totalTouches) * 100).toFixed(1) + '%';
+                if (pctAttackToDrawElement) pctAttackToDrawElement.textContent = ((quarterStats[q].attackToDrawTotal / quarterStats[q].totalTouches) * 100).toFixed(1) + '%';
+            } else {
+                if (pctAttacksElement) pctAttacksElement.textContent = '0%';
+                if (pctAttackToDrawElement) pctAttackToDrawElement.textContent = '0%';
+            }
+
+            // Calculate Attack Rate
+            const attackRateElement = document.getElementById(`q${q}-attack-rate`);
+            if (quarterStats[q].totalTouches > 0) {
+                quarterStats[q].attackRate = (quarterStats[q].attacks / quarterStats[q].totalTouches) * 100;
+                if (attackRateElement) attackRateElement.textContent = quarterStats[q].attackRate.toFixed(1) + '%';
+            } else {
+                quarterStats[q].attackRate = 0;
+                if (attackRateElement) attackRateElement.textContent = '--';
+            }
+
+            // Assign Grade based on Attack Rate (example logic)
+            const gradeElement = document.getElementById(`q${q}-grade`);
+            if (quarterStats[q].attackRate >= 70) {
+                quarterStats[q].grade = 'A';
+            } else if (quarterStats[q].attackRate >= 50) {
+                quarterStats[q].grade = 'B';
+            } else if (quarterStats[q].attackRate >= 30) {
+                quarterStats[q].grade = 'C';
+            } else {
+                quarterStats[q].grade = 'F';
+            }
+            if (gradeElement) gradeElement.textContent = quarterStats[q].grade;
+        }
+
+        /**
+         * Calculates and updates the total statistics for all quarters combined.
+         */
+        function calculateAllQuarters() {
+            let gameActiveTouches = 0;
+            let gamePassiveTouches = 0;
+            let gameTotalTouches = 0;
+            let gameAttacks = 0;
+            let gameAttackToDrawTotal = 0;
+            // The specific outcome variables like gameAggressiveTurnover are no longer needed for gameTotals since the table is removed.
+
+            // Sum up attack types for game totals
+            const gameShotTotals = { '3pt': 0, attackfrompass: 0, attacktodraw: 0, dribble: 0, layup: 0, midrange: 0, transition: 0 };
+            const gamePassTotals = { '3pt': 0, attackfrompass: 0, attacktodraw: 0, dribble: 0, layup: 0, midrange: 0, transition: 0 };
+
+
+            // Iterate through all existing quarters to sum up totals
+            for (let q = 1; q <= quarterCount; q++) {
+                // Ensure each quarter is calculated before summing up
+                calculateQuarter(q); // Important to ensure quarterStats[q] is up-to-date
+
+                gameActiveTouches += quarterStats[q].activeTouches;
+                gamePassiveTouches += quarterStats[q].passiveTouches;
+                gameTotalTouches += quarterStats[q].totalTouches;
+                gameAttacks += quarterStats[q].attacks;
+                gameAttackToDrawTotal += quarterStats[q].attackToDrawTotal;
+                // Specific outcomes are no longer summed into gameTotals
+            }
+
+            // Store game totals in the global variable for LLM use
+            gameTotals = {
+                gameActiveTouches,
+                gamePassiveTouches,
+                gameTotalTouches,
+                gameAttacks,
+                gameAttackToDrawTotal,
+                // Removed specific outcome sums from gameTotals object
+                shotTotals: gameShotTotals, // Added for game totals display
+                passTotals: gamePassTotals // Added for game totals display
+            };
+
+
+            // Update game totals in the UI (Primary Stats)
+            document.getElementById('game-active-touches').textContent = gameActiveTouches;
+            document.getElementById('game-passive-touches').textContent = gamePassiveTouches;
+            document.getElementById('game-total-touches').textContent = gameTotalTouches;
+            document.getElementById('game-attacks').textContent = gameAttacks;
+            document.getElementById('game-attacktodraw-total').textContent = gameAttackToDrawTotal;
+
+            // Calculate game total percentages for primary stats
+            if (gameTotalTouches > 0) {
+                document.getElementById('game-pct-active-touches').textContent = ((gameActiveTouches / gameTotalTouches) * 100).toFixed(1) + '%';
+                document.getElementById('game-pct-passive-touches').textContent = ((gamePassiveTouches / gameTotalTouches) * 100).toFixed(1) + '%';
+                document.getElementById('game-pct-attacks').textContent = ((gameAttacks / gameTotalTouches) * 100).toFixed(1) + '%';
+                document.getElementById('game-pct-attacktodraw').textContent = ((gameAttackToDrawTotal / gameTotalTouches) * 100).toFixed(1) + '%';
+
+                // Game Attack Rate and Grade are not displayed in Game Totals table, but can be calculated for LLM
+                const gameAttackRate = (gameAttacks / gameTotalTouches) * 100;
+                gameTotals.gameAttackRate = gameAttackRate; // Store in gameTotals
+
+                let gameGrade = '';
+                if (gameAttackRate >= 70) {
+                    gameGrade = 'A';
+                } else if (gameAttackRate >= 50) {
+                    gameGrade = 'B';
+                } else if (gameAttackRate >= 30) {
+                    gameGrade = 'C';
+                } else {
+                    gameGrade = 'F';
+                }
+                gameTotals.gameGrade = gameGrade; // Store in gameTotals
+
+            } else {
+                // If no touches, set percentages to 0% and rates to '--'
+                document.getElementById('game-pct-active-touches').textContent = '0%';
+                document.getElementById('game-pct-passive-touches').textContent = '0%';
+                document.getElementById('game-pct-attacks').textContent = '0%';
+                document.getElementById('game-pct-attacktodraw').textContent = '0%';
+                gameTotals.gameAttackRate = 0; // Ensure these are reset
+                gameTotals.gameGrade = '--';
+            }
+
+            // Update Attack Rate and Grade in Game Totals UI
+            const gameAttackRateElement = document.getElementById('game-attack-rate');
+            const gameGradeElement = document.getElementById('game-grade');
+
+            if (gameTotalTouches > 0) {
+                if (gameAttackRateElement) gameAttackRateElement.textContent = gameTotals.gameAttackRate.toFixed(1) + '%';
+                if (gameGradeElement) gameGradeElement.textContent = gameTotals.gameGrade;
+            } else {
+                if (gameAttackRateElement) gameAttackRateElement.textContent = '--';
+                if (gameGradeElement) gameGradeElement.textContent = '--';
+            }
+
+
+            // Update Game Totals for Attack Types (New Table)
+            const attackTypesForTable = ['3pt', 'attackfrompass', 'attacktodraw', 'dribble', 'layup', 'midrange', 'transition'];
+            attackTypesForTable.forEach(type => {
+                const shotCount = gameTotals.shotTotals[type] || 0;
+                const passCount = gameTotals.passTotals[type] || 0;
+                const totalForType = shotCount + passCount;
+
+                document.getElementById(`game-shot-${type}`).textContent = shotCount;
+                document.getElementById(`game-pass-${type}`).textContent = passCount;
+                document.getElementById(`game-total-${type}`).textContent = totalForType;
+
+                if (gameTotalTouches > 0) {
+                    document.getElementById(`game-pct-${type}`).textContent = ((totalForType / gameTotalTouches) * 100).toFixed(1) + '%';
+                } else {
+                    document.getElementById(`game-pct-${type}`).textContent = '0%';
+                }
+            });
+
+            // No longer updating Game Totals for Outcomes as the table is removed.
+
+
+            // Hide all individual quarters
+            document.querySelectorAll('.quarter').forEach(el => el.classList.remove('active'));
+            // Show the game totals section after calculation
+            document.getElementById('game-totals').classList.add('active');
+            // Deactivate other quarters' tabs
+            document.querySelectorAll('.quarter-tab').forEach(tab => tab.classList.remove('active'));
+
+            // Draw the pie chart with updated game totals
+            drawPieChart(gameActiveTouches, gamePassiveTouches);
+
+            // Scroll to game totals
+            document.getElementById('game-totals').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        /**
+         * Draws a pie chart on the canvas based on active and passive touches.
+         * @param {number} active - Total active touches.
+         * @param {number} passive - Total passive touches.
+         */
+        function drawPieChart(active, passive) {
+            const canvas = document.getElementById('touchesPieChart');
+            if (!canvas) {
+                console.error("Pie chart canvas not found.");
+                return;
+            }
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear previous drawings
+
+            const total = active + passive;
+            if (total === 0) {
+                // If no touches, draw an empty circle or display a message
+                ctx.beginPath();
+                ctx.arc(canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) / 3, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#ccc';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = '#f0f0f0';
+                ctx.fill();
+                ctx.font = '16px Inter';
+                ctx.fillStyle = '#888';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('No Data', canvas.width / 2, canvas.height / 2);
+                return;
+            }
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(canvas.width, canvas.height) / 3;
+
+            // Define colors for the slices
+            const activeColor = '#f97316'; // Orange-500
+            const passiveColor = '#1e3a8a'; // Blue-900
+
+            let currentAngle = 0;
+
+            // Active Touches slice
+            const activeSliceAngle = (active / total) * 2 * Math.PI;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + activeSliceAngle);
+            ctx.closePath();
+            ctx.fillStyle = activeColor;
+            ctx.fill();
+
+            // Active Touches label
+            const activeMidAngle = currentAngle + activeSliceAngle / 2;
+            const activeLabelX = centerX + radius * 0.7 * Math.cos(activeMidAngle);
+            const activeLabelY = centerY + radius * 0.7 * Math.sin(activeMidAngle);
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 14px Inter';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (active > 0) { // Only show label if there's a slice
+                ctx.fillText(`${((active / total) * 100).toFixed(0)}%`, activeLabelX, activeLabelY);
+            }
+
+
+            currentAngle += activeSliceAngle;
+
+            // Passive Touches slice
+            const passiveSliceAngle = (passive / total) * 2 * Math.PI;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + passiveSliceAngle);
+            ctx.closePath();
+            ctx.fillStyle = passiveColor;
+            ctx.fill();
+
+            // Passive Touches label
+            const passiveMidAngle = currentAngle + passiveSliceAngle / 2;
+            const passiveLabelX = centerX + radius * 0.7 * Math.cos(passiveMidAngle);
+            const passiveLabelY = centerY + radius * 0.7 * Math.sin(passiveMidAngle);
+            if (passive > 0) { // Only show label if there's a slice
+                ctx.fillText(`${((passive / total) * 100).toFixed(0)}%`, passiveLabelX, passiveLabelY);
+            }
+
+            // Legend
+            const legendX = centerX - radius;
+            const legendY = centerY + radius + 20;
+            const legendBoxSize = 12;
+            const legendTextOffset = 20;
+            const legendLineHeight = 20;
+
+            // Active Touches Legend
+            ctx.fillStyle = activeColor;
+            ctx.fillRect(legendX, legendY, legendBoxSize, legendBoxSize);
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'left';
+            ctx.fillText('Active Touches', legendX + legendTextOffset, legendY + legendBoxSize / 2);
+
+            // Passive Touches Legend
+            ctx.fillStyle = passiveColor;
+            ctx.fillRect(legendX, legendY + legendLineHeight, legendBoxSize, legendBoxSize);
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'left';
+            ctx.fillText('Passive Touches', legendX + legendTextOffset, legendY + legendLineHeight + legendBoxSize / 2);
+        }
+
+        /**
+         * Resets the entire game state, clearing all quarter data and UI.
+         */
+        function resetGame() {
+            if (!confirm("Are you sure you want to reset the current game? This action cannot be undone for the current session.")) {
+                return; // User cancelled
+            }
+
+            initializeQuarterStats(); // Reset the data structure
+            const oldQuarterCount = quarterCount; // Store current max quarter number before reset
+            quarterCount = 4; // Reset quarter counter to default 4 quarters
+
+            // Remove dynamically added quarter divs and tabs from the DOM
+            const quartersContainer = document.getElementById('quarters-container');
+            const quarterTabsContainer = document.getElementById('quarter-tabs-container');
+            // Iterate backwards to safely remove children
+            for (let i = oldQuarterCount; i > 4; i--) {
+                const quarterToRemove = document.getElementById(`q${i}`);
+                if (quarterToRemove) {
+                    quartersContainer.removeChild(quarterToRemove);
+                }
+                const tabToRemove = document.querySelector(`#quarter-tabs-container button[onclick="showQuarter(${i})"]`);
+                if (tabToRemove) {
+                    quarterTabsContainer.removeChild(tabToRemove);
+                }
+            }
+
+            // Reset UI for the initial 4 quarters
+            for (let q = 1; q <= 4; q++) {
+                const quarterDiv = document.getElementById(`q${q}`);
+                if (quarterDiv) {
+                    quarterDiv.querySelectorAll('td[id^="q"], span[id^="q"]').forEach(el => {
+                        if (el.id.includes('-pct-') || el.id.includes('-rate')) {
+                            el.textContent = '0%';
+                        } else if (el.id.includes('-grade')) {
+                            el.textContent = '--';
+                        } else {
+                            el.textContent = '0';
+                        }
+                    });
+                    const touchBtn = quarterDiv.querySelector('.touch-btn');
+                    if (touchBtn) touchBtn.disabled = false;
+                    const calcBtn = quarterDiv.querySelector('.quarter-calc-btn');
+                    if (calcBtn) {
+                        // Set initial button text based on whether it's the 4th quarter or not
+                        if (q === 4) {
+                            calcBtn.textContent = 'End Game';
+                        } else {
+                            calcBtn.textContent = 'End Quarter';
+                        }
+                        calcBtn.classList.remove('bg-blue-900', 'hover:bg-blue-800', 'focus:ring-orange-500'); // Ensure it reverts from blue if it was locked
+                        calcBtn.classList.add('bg-orange-500', 'hover:bg-orange-600', 'focus:ring-orange-700');
+                    }
+                }
+            }
+
+            // Reset game totals UI
+            document.getElementById('game-active-touches').textContent = '0';
+            document.getElementById('game-passive-touches').textContent = '0';
+            document.getElementById('game-total-touches').textContent = '0';
+            document.getElementById('game-attacks').textContent = '0';
+            document.getElementById('game-attacktodraw-total').textContent = '0';
+
+            // Reset game attack types table
+            const attackTypesForTable = ['3pt', 'attackfrompass', 'attacktodraw', 'dribble', 'layup', 'midrange', 'transition'];
+            attackTypesForTable.forEach(type => {
+                document.getElementById(`game-shot-${type}`).textContent = '0';
+                document.getElementById(`game-pass-${type}`).textContent = '0';
+                document.getElementById(`game-total-${type}`).textContent = '0';
+                document.getElementById(`game-pct-${type}`).textContent = '0%';
+            });
+            // The game outcomes table is now removed, so no need to reset its specific elements.
+
+            // Reset Attack Rate and Grade in Game Totals UI
+            document.getElementById('game-attack-rate').textContent = '--';
+            document.getElementById('game-grade').textContent = '--';
+
+
+            drawPieChart(0, 0); // Clear the pie chart
+
+            // Make sure only the first quarter is visible on load.
+            showQuarter(1);
+            // Re-initialize game totals so LLM analysis works correctly after reset
+            calculateAllQuarters();
+            // Hide game totals initially after reset, show the first quarter
+            document.getElementById('game-totals').classList.remove('active');
+        }
+
+        /**
+         * Exports the visible content of the page as a PNG image.
+         */
+        function exportContent() {
+            // Capture the entire body content
+            html2canvas(document.body, {
+                useCORS: true, // Needed if there are images from external domains
+                scrollY: -window.scrollY, // Correct scrolling for full page capture
+                windowHeight: document.body.scrollHeight // Ensure full height is captured
+            }).then(canvas => {
+                // Create an image URL from the canvas
+                const imageData = canvas.toDataURL('image/png');
+
+                // Create a temporary link element to trigger the download
+                const link = document.createElement('a');
+                link.href = imageData;
+                link.download = 'grit_grid_stats.png'; // File name for the download
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link); // Clean up the temporary link
+            }).catch(error => {
+                console.error('Error exporting content:', error);
+                // Fallback or user message if export fails
+                showModal("Export Failed", "There was an error exporting the image. Please try again.", false);
+            });
+        }
+
+        /**
+         * Displays the LLM response modal.
+         * @param {string} title - The title for the modal.
+         * @param {string} content - The content to display in the modal.
+         * @param {boolean} isLoading - Whether to show the loading spinner.
+         */
+        function showModal(title, content, isLoading) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('llmOutput').textContent = content;
+            document.getElementById('llmResponseModal').style.display = 'flex';
+            document.getElementById('modalLoader').style.display = isLoading ? 'block' : 'none';
+        }
+
+        /**
+         * Closes the LLM response modal.
+         */
+        function closeModal() {
+            document.getElementById('llmResponseModal').style.display = 'none';
+            document.getElementById('llmOutput').textContent = ''; // Clear content
+            document.getElementById('modalLoader').style.display = 'none'; // Hide loader
+        }
+
+        /**
+         * Calls the Gemini API to generate an analysis summary.
+         */
+        async function generateAnalysis() {
+            if (gameTotals.gameTotalTouches === 0) {
+                showModal("AI Analysis", "Please record some touches first to generate an analysis.", false);
+                return;
+            }
+            showModal("AI Analysis", "", true); // Show modal with loader
+
+            const prompt = `You are an experienced basketball analyst. Based on the following game statistics, provide a concise summary of the team's overall performance, highlighting strengths, weaknesses, and key takeaways.
+
+Game Stats:
+- Active Touches: ${gameTotals.gameActiveTouches}
+- Passive Touches: ${gameTotals.gamePassiveTouches}
+- Total Touches: ${gameTotals.gameTotalTouches}
+- Attacks: ${gameTotals.gameAttacks}
+- Attack to Draw Fouls (Total): ${gameTotals.gameAttackToDrawTotal}
+- Attack Rate: ${gameTotals.gameAttackRate.toFixed(1)}%
+- Grade: ${gameTotals.gameGrade}
+- Aggressive Turnovers: ${gameTotals.gameAggressiveTurnover}
+- Failed Attack (Positive Outcome): ${gameTotals.gameFailedPositive}
+- Passive Possession: ${gameTotals.gamePassivePossession}
+- Passive Positive Outcome: ${gameTotals.gamePassivePositive}
+- Passive Turnover: ${gameTotals.gamePassiveTurnover}
+
+Keep the summary to 3-4 sentences.`;
+
+            try {
+                // Send only the prompt text in the body to the Cloud Function
+                const payload = { prompt: prompt };
+
+                // Make the fetch call to your Cloud Function proxy
+                const response = await fetch(proxyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                // Check for the 'analysis' key in the response as returned by your proxy
+                if (result.analysis) {
+                    document.getElementById('llmOutput').textContent = result.analysis;
+                } else {
+                    document.getElementById('llmOutput').textContent = "Failed to get analysis. Please try again.";
+                    console.error("Proxy response structure unexpected or missing 'analysis' key:", result);
+                }
+            } catch (error) {
+                document.getElementById('llmOutput').textContent = "Error fetching analysis. Please check your network or Cloud Function.";
+                console.error("Error calling Cloud Function proxy for analysis:", error);
+            } finally {
+                document.getElementById('modalLoader').style.display = 'none'; // Hide loader
+            }
+        }
+
+        /**
+         * Calls the Gemini API to generate game plan suggestions.
+         */
+        async function generateGamePlan() {
+            if (gameTotals.gameTotalTouches === 0) {
+                showModal("AI Game Plan", "Please record some touches first to generate a game plan.", false);
+                return;
+            }
+            showModal("AI Game Plan", "", true); // Show modal with loader
+
+            const prompt = `You are a basketball coach. Based on the following game statistics, provide 2-3 actionable suggestions for a game plan or strategy for the next quarter or game to improve performance. Focus on specific tactical advice.
+
+Game Stats:
+- Active Touches: ${gameTotals.gameActiveTouches}
+- Passive Touches: ${gameTotals.gamePassiveTouches}
+- Total Touches: ${gameTotals.gameTotalTouches}
+- Attacks: ${gameTotals.gameAttacks}
+- Attack to Draw Fouls (Total): ${gameTotals.gameAttackToDrawTotal}
+- Attack Rate: ${gameTotals.gameAttackRate.toFixed(1)}%
+- Grade: ${gameTotals.gameGrade}
+- Aggressive Turnovers: ${gameTotals.gameAggressiveTurnover}
+- Failed Attack (Positive Outcome): ${gameTotals.gameFailedPositive}
+- Passive Possession: ${gameTotals.gamePassivePossession}
+- Passive Positive Outcome: ${gameTotals.gamePassivePositive}
+- Passive Turnover: ${gameTotals.gamePassiveTurnover}
+
+Provide only the suggestions, without an introductory or concluding sentence. Format each suggestion as a bullet point.`;
+
+            try {
+                // Send only the prompt text in the body to the Cloud Function
+                const payload = { prompt: prompt };
+
+                // Make the fetch call to your Cloud Function proxy
+                const response = await fetch(proxyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                // Check for the 'analysis' key in the response as returned by your proxy
+                if (result.analysis) {
+                    document.getElementById('llmOutput').textContent = result.analysis;
+                } else {
+                    document.getElementById('llmOutput').textContent = "Failed to get game plan. Please try again.";
+                    console.error("Proxy response structure unexpected or missing 'analysis' key:", result);
+                }
+            } catch (error) {
+                document.getElementById('llmOutput').textContent = "Error fetching game plan. Please check your network or Cloud Function.";
+                console.error("Error calling Cloud Function proxy for game plan:", error);
+            } finally {
+                document.getElementById('modalLoader').style.display = 'none'; // Hide loader
+            }
+        }
+
+        // Initialize the app on DOMContentLoaded
+        document.addEventListener('DOMContentLoaded', async () => {
+            initializeQuarterStats(); // Ensure quarterStats is populated
+
+            // Initial UI setup now runs directly
+            for (let q = 1; q <= quarterCount; q++) {
+                calculateQuarter(q);
+                const calcBtn = document.getElementById(`q${q}-calc-btn`);
+                if (calcBtn) {
+                    if (q === quarterCount) {
+                        calcBtn.textContent = 'End Game';
+                    } else {
+                        calcBtn.textContent = 'End Quarter';
+                    }
+                }
+            }
+            calculateAllQuarters();
+            document.getElementById('game-totals').classList.remove('active');
+            showQuarter(1);
+        });
+    </script>
+</body>
+</html>
